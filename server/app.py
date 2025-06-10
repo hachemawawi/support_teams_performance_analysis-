@@ -6,7 +6,10 @@ import datetime
 import uuid
 import os
 import hashlib
+import json
 from functools import wraps
+from textblob import TextBlob
+import re
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -16,6 +19,55 @@ CORS(app)
 DATABASE = 'support_system.db'
 SECRET_KEY = 'your-secret-key'  # Change this in production
 TOKEN_EXPIRATION = 24  # hours
+
+# Sentiment Analysis Configuration
+SENTIMENT_THRESHOLDS = {
+    'very_negative': -0.6,
+    'negative': -0.2,
+    'neutral': 0.2,
+    'positive': 0.6,
+    'very_positive': float('inf')
+}
+
+def get_sentiment_score(polarity):
+    if polarity <= SENTIMENT_THRESHOLDS['very_negative']:
+        return 1  # VERY_NEGATIVE
+    elif polarity <= SENTIMENT_THRESHOLDS['negative']:
+        return 2  # NEGATIVE
+    elif polarity <= SENTIMENT_THRESHOLDS['neutral']:
+        return 3  # NEUTRAL
+    elif polarity <= SENTIMENT_THRESHOLDS['positive']:
+        return 4  # POSITIVE
+    else:
+        return 5  # VERY_POSITIVE
+
+def analyze_sentiment(text):
+    # Clean the text
+    text = re.sub(r'[^\w\s]', '', text.lower())
+    
+    # Analyze sentiment
+    blob = TextBlob(text)
+    polarity = blob.sentiment.polarity
+    subjectivity = blob.sentiment.subjectivity
+    
+    # Get keywords (nouns and adjectives)
+    keywords = []
+    for word, tag in blob.tags:
+        if tag.startswith(('NN', 'JJ')):  # Nouns and adjectives
+            keywords.append(word)
+    
+    # Get sentiment score
+    score = get_sentiment_score(polarity)
+    
+    # Calculate confidence based on subjectivity
+    confidence = 1 - subjectivity
+    
+    return {
+        'score': score,
+        'confidence': confidence,
+        'keywords': keywords[:5],  # Limit to top 5 keywords
+        'timestamp': datetime.datetime.utcnow().isoformat()
+    }
 
 # Root route
 @app.route('/')
@@ -61,8 +113,16 @@ def init_db():
         department TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         assigned_to INTEGER,
+        account_number TEXT,
+        issue_type TEXT,
+        location TEXT,
+        service_type TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sentiment_score INTEGER,
+        sentiment_confidence REAL,
+        sentiment_keywords TEXT,
+        sentiment_timestamp TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id),
         FOREIGN KEY (assigned_to) REFERENCES users (id)
     )
@@ -76,6 +136,10 @@ def init_db():
         request_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sentiment_score INTEGER,
+        sentiment_confidence REAL,
+        sentiment_keywords TEXT,
+        sentiment_timestamp TIMESTAMP,
         FOREIGN KEY (request_id) REFERENCES requests (id),
         FOREIGN KEY (user_id) REFERENCES users (id)
     )
@@ -122,14 +186,20 @@ def token_required(f):
         
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
+            print('Auth header:', auth_header)  # Debug log
             if auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
+                print('Extracted token:', token)  # Debug log
         
         if not token:
+            print('No token found in request')  # Debug log
             return jsonify({'message': 'Token is missing!'}), 401
         
         try:
+            print('Attempting to decode token...')  # Debug log
             payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            print('Token payload:', payload)  # Debug log
+            
             user_id = payload['sub']
             user_role = payload['role']
             
@@ -138,13 +208,16 @@ def token_required(f):
             conn.close()
             
             if not user:
+                print('User not found in database:', user_id)  # Debug log
                 return jsonify({'message': 'User not found!'}), 401
             
+            print('User found:', user)  # Debug log
             request.user_id = user_id
             request.user_role = user_role
             
             return f(*args, **kwargs)
-        except:
+        except Exception as e:
+            print('Token validation error:', str(e))  # Debug log
             return jsonify({'message': 'Token is invalid!'}), 401
     
     return decorated
@@ -408,28 +481,46 @@ def get_requests():
         requests = conn.execute('''
             SELECT r.*, 
                    u1.first_name as creator_first_name, u1.last_name as creator_last_name,
-                   u2.first_name as assignee_first_name, u2.last_name as assignee_last_name
+                   u2.first_name as assignee_first_name, u2.last_name as assignee_last_name,
+                   r.sentiment_score, r.sentiment_confidence, r.sentiment_keywords, r.sentiment_timestamp,
+                   (
+                       SELECT json_group_array(
+                           json_object(
+                               'score', c.sentiment_score,
+                               'confidence', c.sentiment_confidence,
+                               'keywords', c.sentiment_keywords,
+                               'timestamp', c.sentiment_timestamp,
+                               'content', c.content
+                           )
+                       )
+                       FROM comments c
+                       WHERE c.request_id = r.id
+                   ) as comments_data
             FROM requests r
             JOIN users u1 ON r.user_id = u1.id
             LEFT JOIN users u2 ON r.assigned_to = u2.id
             ORDER BY r.created_at DESC
         ''').fetchall()
-    elif request.user_role == 'tech':
-        requests = conn.execute('''
-            SELECT r.*, 
-                   u1.first_name as creator_first_name, u1.last_name as creator_last_name,
-                   u2.first_name as assignee_first_name, u2.last_name as assignee_last_name
-            FROM requests r
-            JOIN users u1 ON r.user_id = u1.id
-            LEFT JOIN users u2 ON r.assigned_to = u2.id
-            WHERE r.assigned_to = ?
-            ORDER BY r.created_at DESC
-        ''', (request.user_id,)).fetchall()
     else:
+        # Regular users only see their own requests
         requests = conn.execute('''
             SELECT r.*, 
                    u1.first_name as creator_first_name, u1.last_name as creator_last_name,
-                   u2.first_name as assignee_first_name, u2.last_name as assignee_last_name
+                   u2.first_name as assignee_first_name, u2.last_name as assignee_last_name,
+                   r.sentiment_score, r.sentiment_confidence, r.sentiment_keywords, r.sentiment_timestamp,
+                   (
+                       SELECT json_group_array(
+                           json_object(
+                               'score', c.sentiment_score,
+                               'confidence', c.sentiment_confidence,
+                               'keywords', c.sentiment_keywords,
+                               'timestamp', c.sentiment_timestamp,
+                               'content', c.content
+                           )
+                       )
+                       FROM comments c
+                       WHERE c.request_id = r.id
+                   ) as comments_data
             FROM requests r
             JOIN users u1 ON r.user_id = u1.id
             LEFT JOIN users u2 ON r.assigned_to = u2.id
@@ -441,7 +532,7 @@ def get_requests():
     
     requests_list = []
     for req in requests:
-        requests_list.append({
+        request_data = {
             'id': req['id'],
             'title': req['title'],
             'description': req['description'],
@@ -460,7 +551,34 @@ def get_requests():
                 'firstName': req['assignee_first_name'],
                 'lastName': req['assignee_last_name']
             } if req['assignee_first_name'] else None
-        })
+        }
+        
+        # Add sentiment data if available
+        if req['sentiment_score']:
+            request_data['overallSentiment'] = {
+                'score': req['sentiment_score'],
+                'confidence': req['sentiment_confidence'],
+                'keywords': json.loads(req['sentiment_keywords']) if req['sentiment_keywords'] else [],
+                'timestamp': req['sentiment_timestamp']
+            }
+        
+        # Add comments sentiment data
+        if req['comments_data']:
+            try:
+                comments_data = json.loads(req['comments_data'])
+                request_data['comments'] = [{
+                    'sentiment': {
+                        'score': comment['score'],
+                        'confidence': comment['confidence'],
+                        'keywords': json.loads(comment['keywords']) if comment['keywords'] else [],
+                        'timestamp': comment['timestamp']
+                    },
+                    'content': comment['content']
+                } for comment in comments_data if comment['score'] is not None]
+            except (json.JSONDecodeError, KeyError):
+                request_data['comments'] = []
+        
+        requests_list.append(request_data)
     
     return jsonify(requests_list), 200
 
@@ -561,11 +679,12 @@ def get_assigned_requests(user_id):
 def get_request(request_id):
     conn = get_db_connection()
     
-    # Get request details
+    # Get request details with sentiment data
     req = conn.execute('''
         SELECT r.*, 
                u1.first_name as creator_first_name, u1.last_name as creator_last_name,
-               u2.first_name as assignee_first_name, u2.last_name as assignee_last_name
+               u2.first_name as assignee_first_name, u2.last_name as assignee_last_name,
+               r.sentiment_score, r.sentiment_confidence, r.sentiment_keywords, r.sentiment_timestamp
         FROM requests r
         JOIN users u1 ON r.user_id = u1.id
         LEFT JOIN users u2 ON r.assigned_to = u2.id
@@ -583,9 +702,10 @@ def get_request(request_id):
         conn.close()
         return jsonify({'message': 'Access denied'}), 403
     
-    # Get comments
+    # Get comments with sentiment data
     comments = conn.execute('''
-        SELECT c.*, u.first_name, u.last_name, u.role
+        SELECT c.*, u.first_name, u.last_name, u.role,
+               c.sentiment_score, c.sentiment_confidence, c.sentiment_keywords, c.sentiment_timestamp
         FROM comments c
         JOIN users u ON c.user_id = u.id
         WHERE c.request_id = ?
@@ -594,7 +714,7 @@ def get_request(request_id):
     
     comments_list = []
     for comment in comments:
-        comments_list.append({
+        comment_data = {
             'id': comment['id'],
             'content': comment['content'],
             'requestId': comment['request_id'],
@@ -605,9 +725,18 @@ def get_request(request_id):
                 'lastName': comment['last_name'],
                 'role': comment['role']
             }
-        })
-    
-    conn.close()
+        }
+        
+        # Add sentiment data if available
+        if comment['sentiment_score'] is not None:
+            comment_data['sentiment'] = {
+                'score': comment['sentiment_score'],
+                'confidence': comment['sentiment_confidence'],
+                'keywords': json.loads(comment['sentiment_keywords']) if comment['sentiment_keywords'] else [],
+                'timestamp': comment['sentiment_timestamp']
+            }
+        
+        comments_list.append(comment_data)
     
     # Combine request data and comments
     request_data = {
@@ -634,66 +763,173 @@ def get_request(request_id):
         'comments': comments_list
     }
     
+    # Add overall sentiment data if available
+    if req['sentiment_score'] is not None:
+        request_data['overallSentiment'] = {
+            'score': req['sentiment_score'],
+            'confidence': req['sentiment_confidence'],
+            'keywords': json.loads(req['sentiment_keywords']) if req['sentiment_keywords'] else [],
+            'timestamp': req['sentiment_timestamp']
+        }
+    
+    conn.close()
     return jsonify(request_data), 200
 
 @app.route('/api/requests', methods=['POST'])
 @token_required
 def create_request():
-    data = request.get_json()
+    print('\n=== Creating new request ===')
+    print('User ID from token:', request.user_id)
+    print('User role from token:', request.user_role)
     
-    # Validate required fields
-    required_fields = ['title', 'description', 'department', 'priority']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({'message': f'Missing required field: {field}'}), 400
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-    INSERT INTO requests (title, description, status, priority, department, user_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ''', (
-        data['title'],
-        data['description'],
-        'new',
-        data['priority'],
-        data['department'],
-        request.user_id
-    ))
-    
-    request_id = cursor.lastrowid
-    conn.commit()
-    
-    # Get the created request
-    req = conn.execute('''
-        SELECT r.*, 
-               u1.first_name as creator_first_name, u1.last_name as creator_last_name
-        FROM requests r
-        JOIN users u1 ON r.user_id = u1.id
-        WHERE r.id = ?
-    ''', (request_id,)).fetchone()
-    
-    conn.close()
-    
-    request_data = {
-        'id': req['id'],
-        'title': req['title'],
-        'description': req['description'],
-        'status': req['status'],
-        'priority': req['priority'],
-        'department': req['department'],
-        'userId': req['user_id'],
-        'assignedTo': req['assigned_to'],
-        'createdAt': req['created_at'],
-        'updatedAt': req['updated_at'],
-        'user': {
-            'firstName': req['creator_first_name'],
-            'lastName': req['creator_last_name']
-        }
-    }
-    
-    return jsonify(request_data), 201
+    try:
+        data = request.get_json()
+        print('Request data:', json.dumps(data, indent=2))
+        
+        # Validate required fields
+        required_fields = ['title', 'description']
+        for field in required_fields:
+            if field not in data:
+                print(f'Missing required field: {field}')
+                return jsonify({'message': f'Missing required field: {field}'}), 400
+        
+        # Analyze sentiment of the request
+        try:
+            sentiment = analyze_sentiment(data['description'])
+            print('Sentiment analysis:', json.dumps(sentiment, indent=2))
+        except Exception as e:
+            print('Error in sentiment analysis:', str(e))
+            sentiment = {
+                'score': 3,  # Default to neutral
+                'confidence': 0.5,
+                'keywords': [],
+                'timestamp': datetime.datetime.utcnow().isoformat()
+            }
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            print('Preparing SQL insert...')
+            sql = '''
+            INSERT INTO requests (
+                title, description, status, priority, department, user_id,
+                account_number, issue_type, location, service_type,
+                sentiment_score, sentiment_confidence, sentiment_keywords, sentiment_timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            '''
+            
+            # Determine department based on service type and issue type
+            department = 'it'  # Default to IT
+            if data.get('serviceType') == 'billing':
+                department = 'finance'
+            elif data.get('serviceType') == 'technical':
+                department = 'it'
+            elif data.get('serviceType') == 'customer_service':
+                department = 'customer_service'
+            elif data.get('serviceType') == 'sales':
+                department = 'sales'
+            elif data.get('issueType') in ['installation', 'equipment', 'maintenance']:
+                department = 'operations'
+            elif data.get('issueType') in ['billing', 'payment', 'refund']:
+                department = 'finance'
+            elif data.get('issueType') in ['technical', 'software', 'hardware']:
+                department = 'it'
+            elif data.get('issueType') in ['service', 'support', 'complaint']:
+                department = 'customer_service'
+            
+            # Set default priority based on sentiment and issue type
+            priority = 3  # Default to medium
+            if sentiment['score'] <= 2:  # Negative sentiment
+                priority = 2  # High priority
+            if data.get('issueType') == 'connectivity':
+                priority = 2  # High priority for connectivity issues
+            
+            params = (
+                data['title'],
+                data['description'],
+                'new',  # Default status
+                priority,
+                department,
+                request.user_id,
+                data.get('accountNumber'),
+                data.get('issueType'),
+                data.get('location'),
+                data.get('serviceType'),
+                sentiment['score'],
+                sentiment['confidence'],
+                json.dumps(sentiment['keywords']),
+                sentiment['timestamp']
+            )
+            print('SQL:', sql)
+            print('Parameters:', params)
+            
+            print('Executing SQL insert...')
+            cursor.execute(sql, params)
+            
+            request_id = cursor.lastrowid
+            conn.commit()
+            print('Request created with ID:', request_id)
+            
+            # Get the created request with user info
+            print('Fetching created request...')
+            request_data = conn.execute('''
+            SELECT r.*, u.first_name, u.last_name, u.email
+            FROM requests r
+            JOIN users u ON r.user_id = u.id
+            WHERE r.id = ?
+            ''', (request_id,)).fetchone()
+            
+            print('Created request data:', dict(request_data))
+            
+            conn.close()
+            
+            response_data = {
+                'id': request_data['id'],
+                'title': request_data['title'],
+                'description': request_data['description'],
+                'status': request_data['status'],
+                'priority': request_data['priority'],
+                'department': request_data['department'],
+                'userId': request_data['user_id'],
+                'assignedTo': request_data['assigned_to'],
+                'accountNumber': request_data['account_number'],
+                'issueType': request_data['issue_type'],
+                'location': request_data['location'],
+                'serviceType': request_data['service_type'],
+                'createdAt': request_data['created_at'],
+                'updatedAt': request_data['updated_at'],
+                'user': {
+                    'id': request_data['user_id'],
+                    'firstName': request_data['first_name'],
+                    'lastName': request_data['last_name'],
+                    'email': request_data['email']
+                },
+                'sentiment': {
+                    'score': request_data['sentiment_score'],
+                    'confidence': request_data['sentiment_confidence'],
+                    'keywords': json.loads(request_data['sentiment_keywords']),
+                    'timestamp': request_data['sentiment_timestamp']
+                }
+            }
+            print('Response data:', json.dumps(response_data, indent=2))
+            return jsonify(response_data), 201
+            
+        except sqlite3.Error as e:
+            print('Database error:', str(e))
+            print('Error details:', e.__dict__)
+            conn.close()
+            return jsonify({'message': f'Database error: {str(e)}'}), 500
+        except Exception as e:
+            print('Error creating request:', str(e))
+            print('Error details:', e.__dict__)
+            conn.close()
+            return jsonify({'message': f'Error creating request: {str(e)}'}), 500
+    except Exception as e:
+        print('Error processing request:', str(e))
+        print('Error details:', e.__dict__)
+        return jsonify({'message': f'Error processing request: {str(e)}'}), 500
 
 @app.route('/api/requests/<int:request_id>', methods=['PUT'])
 @token_required
@@ -802,65 +1038,130 @@ def update_request(request_id):
 @app.route('/api/requests/<int:request_id>/comments', methods=['POST'])
 @token_required
 def add_comment(request_id):
+    data = request.get_json()
+    if not data or 'content' not in data:
+        return jsonify({'message': 'Content is required'}), 400
+    
     conn = get_db_connection()
+    request_data = conn.execute('SELECT * FROM requests WHERE id = ?', (request_id,)).fetchone()
     
-    # Check if request exists
-    req = conn.execute('SELECT * FROM requests WHERE id = ?', (request_id,)).fetchone()
-    
-    if not req:
+    if not request_data:
         conn.close()
         return jsonify({'message': 'Request not found'}), 404
     
-    # Check access rights
-    if (request.user_role != 'admin' and 
-        request.user_role != 'tech' and 
-        int(request.user_id) != req['user_id']):
-        conn.close()
-        return jsonify({'message': 'Access denied'}), 403
+    # Analyze comment sentiment
+    sentiment = analyze_sentiment(data['content'])
     
-    data = request.get_json()
-    
-    if not data or not data.get('content'):
-        conn.close()
-        return jsonify({'message': 'Comment content is required'}), 400
-    
+    # Add comment with sentiment
     cursor = conn.cursor()
     cursor.execute('''
-    INSERT INTO comments (content, request_id, user_id)
-    VALUES (?, ?, ?)
+    INSERT INTO comments (content, request_id, user_id, sentiment_score, sentiment_confidence, sentiment_keywords, sentiment_timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (
         data['content'],
         request_id,
-        request.user_id
+        request.user_id,
+        sentiment['score'],
+        sentiment['confidence'],
+        json.dumps(sentiment['keywords']),
+        sentiment['timestamp']
     ))
     
     comment_id = cursor.lastrowid
+    
+    # Get all comments for this request to calculate overall sentiment
+    comments = conn.execute('''
+        SELECT sentiment_score, sentiment_confidence, content
+        FROM comments 
+        WHERE request_id = ? AND user_id IN (
+            SELECT id FROM users WHERE role = 'user'
+        )
+    ''', (request_id,)).fetchall()
+    
+    # Calculate overall sentiment
+    total_score = 0
+    total_confidence = 0
+    all_text = request_data['description']  # Include original request text
+    
+    for comment in comments:
+        if comment['sentiment_score']:
+            total_score += comment['sentiment_score']
+            total_confidence += comment['sentiment_confidence']
+            all_text += ' ' + comment['content']
+    
+    # Calculate averages and analyze combined text
+    num_comments = len(comments)
+    if num_comments > 0:
+        avg_score = round(total_score / num_comments)
+        avg_confidence = total_confidence / num_comments
+        overall_sentiment = analyze_sentiment(all_text)
+    else:
+        # If no comments, use the original request sentiment
+        avg_score = sentiment['score']
+        avg_confidence = sentiment['confidence']
+        overall_sentiment = sentiment
+    
+    # Update request's overall sentiment
+    cursor.execute('''
+    UPDATE requests 
+    SET sentiment_score = ?,
+        sentiment_confidence = ?,
+        sentiment_keywords = ?,
+        sentiment_timestamp = ?
+    WHERE id = ?
+    ''', (
+        avg_score,
+        avg_confidence,
+        json.dumps(overall_sentiment['keywords']),
+        datetime.datetime.utcnow().isoformat(),
+        request_id
+    ))
+    
     conn.commit()
     
     # Get the created comment with user info
     comment = conn.execute('''
-        SELECT c.*, u.first_name, u.last_name, u.role
-        FROM comments c
-        JOIN users u ON c.user_id = u.id
-        WHERE c.id = ?
+    SELECT c.*, u.first_name, u.last_name, u.email, u.role
+    FROM comments c
+    JOIN users u ON c.user_id = u.id
+    WHERE c.id = ?
     ''', (comment_id,)).fetchone()
+    
+    # Get updated request data
+    request_data = conn.execute('''
+    SELECT sentiment_score, sentiment_confidence, sentiment_keywords, sentiment_timestamp
+    FROM requests
+    WHERE id = ?
+    ''', (request_id,)).fetchone()
     
     conn.close()
     
-    comment_data = {
+    return jsonify({
         'id': comment['id'],
         'content': comment['content'],
         'requestId': comment['request_id'],
         'userId': comment['user_id'],
         'createdAt': comment['created_at'],
         'user': {
+            'id': comment['user_id'],
             'firstName': comment['first_name'],
             'lastName': comment['last_name'],
+            'email': comment['email'],
             'role': comment['role']
+        },
+        'sentiment': {
+            'score': comment['sentiment_score'],
+            'confidence': comment['sentiment_confidence'],
+            'keywords': json.loads(comment['sentiment_keywords']),
+            'timestamp': comment['sentiment_timestamp']
+        },
+        'requestSentiment': {
+            'score': request_data['sentiment_score'],
+            'confidence': request_data['sentiment_confidence'],
+            'keywords': json.loads(request_data['sentiment_keywords']),
+            'timestamp': request_data['sentiment_timestamp']
         }
-    }
-    
-    return jsonify(comment_data), 201
+    })
 
 # Dashboard statistics
 @app.route('/api/dashboard/stats', methods=['GET'])
@@ -1070,9 +1371,70 @@ def get_user_dashboard_stats(user_id):
     
     return jsonify(stats), 200
 
+@app.route('/api/analyze-sentiment', methods=['POST'])
+@token_required
+def analyze_text_sentiment():
+    data = request.get_json()
+    if not data or 'text' not in data:
+        return jsonify({'message': 'Text is required'}), 400
+    
+    sentiment = analyze_sentiment(data['text'])
+    return jsonify(sentiment)
+
+@app.route('/api/requests/<int:request_id>/analyze-sentiment', methods=['POST'])
+@token_required
+def analyze_request_sentiment(request_id):
+    conn = get_db_connection()
+    request_data = conn.execute('SELECT * FROM requests WHERE id = ?', (request_id,)).fetchone()
+    
+    if not request_data:
+        conn.close()
+        return jsonify({'message': 'Request not found'}), 404
+    
+    # Get all comments for this request
+    comments = conn.execute('SELECT * FROM comments WHERE request_id = ?', (request_id,)).fetchall()
+    
+    # Combine request description and all comments
+    all_text = request_data['description']
+    for comment in comments:
+        all_text += ' ' + comment['content']
+    
+    # Analyze combined sentiment
+    sentiment = analyze_sentiment(all_text)
+    
+    # Update request sentiment
+    conn.execute('''
+    UPDATE requests 
+    SET sentiment_score = ?,
+        sentiment_confidence = ?,
+        sentiment_keywords = ?,
+        sentiment_timestamp = ?
+    WHERE id = ?
+    ''', (
+        sentiment['score'],
+        sentiment['confidence'],
+        json.dumps(sentiment['keywords']),
+        sentiment['timestamp'],
+        request_id
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify(sentiment)
+
 # Initialize database and start the app
 if __name__ == '__main__':
+    print('Starting server...')
+    
+    # Only initialize database if it doesn't exist
     if not os.path.exists(DATABASE):
+        print('Database not found. Creating new database...')
         init_db()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+        print('Database initialized successfully')
+    else:
+        print('Using existing database')
+    
+    print('Starting Flask server...')
+    app.run(debug=True, host='0.0.0.0', port=5051)
     

@@ -13,8 +13,10 @@ import Button from '../../components/shared/Button';
 interface NewRequestFormValues {
   title: string;
   description: string;
-  department: Department;
-  priority: Priority;
+  serviceType: string;
+  accountNumber: string;
+  location: string;
+  issueType: string;
 }
 
 const NewRequest = () => {
@@ -26,22 +28,23 @@ const NewRequest = () => {
     register, 
     handleSubmit, 
     formState: { errors } 
-  } = useForm<NewRequestFormValues>({
-    defaultValues: {
-      priority: Priority.MEDIUM,
-      department: Department.IT
-    }
-  });
-  
-  const departmentOptions = Object.entries(DEPARTMENT_LABELS).map(([value, label]) => ({
-    value,
-    label
-  }));
-  
-  const priorityOptions = Object.entries(PRIORITY_LABELS).map(([value, label]) => ({
-    value: parseInt(value),
-    label
-  }));
+  } = useForm<NewRequestFormValues>();
+
+  const serviceTypeOptions = [
+    { value: 'wifi', label: 'WiFi' },
+    { value: 'mobile', label: 'Mobile' },
+    { value: 'tv', label: 'TV' },
+    { value: 'landline', label: 'Landline' }
+  ];
+
+  const issueTypeOptions = [
+    { value: 'connectivity', label: 'Connectivity Issues' },
+    { value: 'speed', label: 'Speed Problems' },
+    { value: 'billing', label: 'Billing Issues' },
+    { value: 'equipment', label: 'Equipment Problems' },
+    { value: 'installation', label: 'Installation Request' },
+    { value: 'other', label: 'Other' }
+  ];
   
   const onSubmit = async (data: NewRequestFormValues) => {
     setSubmitting(true);
@@ -49,8 +52,10 @@ const NewRequest = () => {
       await createRequest({
         title: data.title,
         description: data.description,
-        department: data.department,
-        priority: data.priority as Priority
+        serviceType: data.serviceType,
+        accountNumber: data.accountNumber,
+        location: data.location,
+        issueType: data.issueType
       });
       navigate('/requests');
     } catch (error) {
@@ -86,62 +91,66 @@ const NewRequest = () => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select
-                id="department"
-                label="Department"
-                options={departmentOptions}
-                error={errors.department?.message}
-                {...register('department', { 
-                  required: 'Department is required'
+                id="serviceType"
+                label="Service Type"
+                options={serviceTypeOptions}
+                error={errors.serviceType?.message}
+                {...register('serviceType', { 
+                  required: 'Service type is required'
                 })}
               />
               
-              <Select
-                id="priority"
-                label="Priority"
-                options={priorityOptions}
-                error={errors.priority?.message}
-                {...register('priority', { 
-                  required: 'Priority is required',
-                  valueAsNumber: true
+              <TextField
+                id="accountNumber"
+                label="Account Number"
+                placeholder="Your account number"
+                error={errors.accountNumber?.message}
+                {...register('accountNumber', { 
+                  required: 'Account number is required'
                 })}
               />
             </div>
+
+            <TextField
+              id="location"
+              label="Service Location"
+              placeholder="Address where service is installed"
+              error={errors.location?.message}
+              {...register('location', { 
+                required: 'Location is required'
+              })}
+            />
+
+            <Select
+              id="issueType"
+              label="Issue Type"
+              options={issueTypeOptions}
+              error={errors.issueType?.message}
+              {...register('issueType', { 
+                required: 'Issue type is required'
+              })}
+            />
+
+            <TextField
+              id="description"
+              label="Description"
+              placeholder="Detailed description of your issue"
+              multiline
+              rows={4}
+              error={errors.description?.message}
+              {...register('description', { 
+                required: 'Description is required',
+                minLength: {
+                  value: 20,
+                  message: 'Description must be at least 20 characters'
+                }
+              })}
+            />
             
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
-                id="description"
-                rows={6}
-                className={`
-                  w-full rounded-md shadow-sm
-                  ${errors.description ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 
-                    'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}
-                `}
-                placeholder="Please provide a detailed description of your request..."
-                {...register('description', { 
-                  required: 'Description is required',
-                  minLength: {
-                    value: 20,
-                    message: 'Description must be at least 20 characters'
-                  }
-                })}
-              ></textarea>
-              {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>}
-            </div>
-            
-            <div className="flex justify-end space-x-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => navigate('/requests')}
-              >
-                Cancel
-              </Button>
-              
+            <div className="flex justify-end">
               <Button
                 type="submit"
+                variant="primary"
                 isLoading={submitting}
                 icon={<Send size={18} />}
               >

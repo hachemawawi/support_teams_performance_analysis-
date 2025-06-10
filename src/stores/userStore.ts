@@ -1,20 +1,36 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import { User } from '../types';
 import { API_URL } from '../config';
+import { UserRole } from '../types';
 
-interface UserState {
+interface User {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: UserRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UserUpdateData {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  role?: UserRole;
+  password?: string;
+}
+
+interface UserStore {
   users: User[];
   loading: boolean;
   error: string | null;
-  
   fetchUsers: () => Promise<void>;
-  fetchUserById: (id: number) => Promise<User>;
-  updateUser: (id: number, userData: Partial<User>) => Promise<User>;
+  updateUser: (id: number, data: UserUpdateData) => Promise<void>;
   deleteUser: (id: number) => Promise<void>;
 }
 
-export const useUserStore = create<UserState>((set, get) => ({
+export const useUserStore = create<UserStore>((set) => ({
   users: [],
   loading: false,
   error: null,
@@ -22,83 +38,50 @@ export const useUserStore = create<UserState>((set, get) => ({
   fetchUsers: async () => {
     set({ loading: true, error: null });
     try {
-      const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/users`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        }
       });
       set({ users: response.data, loading: false });
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch users'
-      });
+      set({ error: 'Failed to fetch users', loading: false });
     }
   },
 
-  fetchUserById: async (id: number) => {
+  updateUser: async (id: number, data: UserUpdateData) => {
     set({ loading: true, error: null });
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/users/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.put(`${API_URL}/users/${id}`, data, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        }
       });
-      return response.data;
-    } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : `Failed to fetch user #${id}`
-      });
-      throw error;
-    } finally {
-      set({ loading: false });
-    }
-  },
-
-  updateUser: async (id: number, userData: Partial<User>) => {
-    set({ loading: true, error: null });
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.put(`${API_URL}/users/${id}`, userData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      const updatedUser = response.data;
-      
-      set(state => ({
-        users: state.users.map(user => 
-          user.id === id ? updatedUser : user
+      set((state) => ({
+        users: state.users.map((user) =>
+          user.id === id ? response.data : user
         ),
         loading: false
       }));
-      
-      return updatedUser;
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : `Failed to update user #${id}`
-      });
-      throw error;
+      set({ error: 'Failed to update user', loading: false });
     }
   },
 
   deleteUser: async (id: number) => {
     set({ loading: true, error: null });
     try {
-      const token = localStorage.getItem('token');
       await axios.delete(`${API_URL}/users/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        }
       });
-      
-      set(state => ({
-        users: state.users.filter(user => user.id !== id),
+      set((state) => ({
+        users: state.users.filter((user) => user.id !== id),
         loading: false
       }));
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : `Failed to delete user #${id}`
-      });
-      throw error;
+      set({ error: 'Failed to delete user', loading: false });
     }
   }
 }));

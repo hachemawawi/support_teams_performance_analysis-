@@ -32,11 +32,26 @@ export enum Department {
 }
 
 export enum Priority {
-  VERY_LOW = 1,
-  LOW = 2,
-  MEDIUM = 3,
-  HIGH = 4,
-  CRITICAL = 5
+  LOW = 1,        // Non-urgent issues (e.g., billing inquiries, general questions)
+  MEDIUM = 2,     // Minor service issues (e.g., slow speed, occasional disconnections)
+  HIGH = 3,       // Service affecting issues (e.g., frequent disconnections, poor signal)
+  URGENT = 4,     // Critical service issues (e.g., complete service outage)
+  EMERGENCY = 5   // Life-threatening situations (e.g., emergency services affected)
+}
+
+export enum SentimentScore {
+  VERY_NEGATIVE = 1,
+  NEGATIVE = 2,
+  NEUTRAL = 3,
+  POSITIVE = 4,
+  VERY_POSITIVE = 5
+}
+
+export interface SentimentAnalysis {
+  score: SentimentScore;
+  confidence: number;
+  keywords: string[];
+  timestamp: string;
 }
 
 export interface Request {
@@ -47,12 +62,28 @@ export interface Request {
   priority: Priority;
   department: Department;
   userId: number;
-  assignedTo: number | null;
+  assignedTo?: number;
   createdAt: string;
   updatedAt: string;
-  user?: User;
-  assignee?: User;
+  user?: {
+    firstName: string;
+    lastName: string;
+  };
+  assignee?: {
+    firstName: string;
+    lastName: string;
+  };
   comments?: Comment[];
+  serviceType: string;
+  accountNumber: string;
+  location: string;
+  issueType: string;
+  overallSentiment?: {
+    score: number;
+    confidence: number;
+    keywords: string[];
+    timestamp: string;
+  };
 }
 
 // Comments on Requests
@@ -62,7 +93,19 @@ export interface Comment {
   requestId: number;
   userId: number;
   createdAt: string;
-  user?: User;
+  user?: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: string;
+  };
+  sentiment?: {
+    score: number;
+    confidence: number;
+    keywords: string[];
+    timestamp: string;
+  };
 }
 
 // Auth Types
@@ -97,8 +140,9 @@ export interface DashboardStats {
   openRequests: number;
   resolvedRequests: number;
   avgResponseTime: number;
-  requestsByStatus: Record<RequestStatus, number>;
-  requestsByDepartment: Record<Department, number>;
-  requestsByPriority: Record<Priority, number>;
+  requestsByStatus: Record<string, number>;
+  requestsByDepartment: Record<string, number>;
+  requestsByPriority: Record<number, number>;
   recentRequests: Request[];
+  requests: Request[];
 }

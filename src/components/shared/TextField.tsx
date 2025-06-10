@@ -1,19 +1,21 @@
-import { forwardRef, InputHTMLAttributes, ReactNode } from 'react';
+import { forwardRef, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
   icon?: ReactNode;
   fullWidth?: boolean;
+  multiline?: boolean;
+  rows?: number;
 }
 
-const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  ({ label, error, icon, fullWidth = true, className = '', ...rest }, ref) => {
+const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, TextFieldProps>(
+  ({ label, error, icon, fullWidth = true, multiline = false, rows = 4, className = '', ...rest }, ref) => {
     const inputClasses = `
       block rounded-md shadow-sm
       ${error ? 'border-red-300 text-red-900 focus:border-red-500 focus:ring-red-500' : 
         'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}
-      ${icon ? 'pl-10' : ''}
+      ${icon && !multiline ? 'pl-10' : ''}
       ${fullWidth ? 'w-full' : ''}
       ${className}
     `;
@@ -26,16 +28,25 @@ const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
           </label>
         )}
         <div className="relative">
-          {icon && (
+          {icon && !multiline && (
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
               {icon}
             </div>
           )}
-          <input
-            ref={ref}
-            className={inputClasses}
-            {...rest}
-          />
+          {multiline ? (
+            <textarea
+              ref={ref as React.Ref<HTMLTextAreaElement>}
+              className={inputClasses}
+              rows={rows}
+              {...rest as TextareaHTMLAttributes<HTMLTextAreaElement>}
+            />
+          ) : (
+            <input
+              ref={ref as React.Ref<HTMLInputElement>}
+              className={inputClasses}
+              {...rest}
+            />
+          )}
         </div>
         {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
       </div>

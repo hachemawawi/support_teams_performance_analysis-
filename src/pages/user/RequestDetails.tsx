@@ -1,24 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { 
   ArrowLeft, 
   Send, 
-  CheckCircle2, 
-  Clock, 
   User, 
   Calendar, 
-  MessageSquare 
+  MessageSquare
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useRequestStore } from '../../stores/requestStore';
-import { RequestStatus, Department, Priority } from '../../types';
+import { RequestStatus, Department } from '../../types';
 import { DEPARTMENT_LABELS } from '../../config';
 import PageHeader from '../../components/shared/PageHeader';
 import Button from '../../components/shared/Button';
 import StatusBadge from '../../components/shared/StatusBadge';
 import PriorityBadge from '../../components/shared/PriorityBadge';
+import SentimentBadge from '../../components/shared/SentimentBadge';
 import Spinner from '../../components/shared/Spinner';
 
 interface CommentFormValues {
@@ -26,267 +25,138 @@ interface CommentFormValues {
 }
 
 const RequestDetails = () => {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { currentRequest, loading, fetchRequestById, addComment } = useRequestStore();
-  const [submitting, setSubmitting] = useState(false);
-  
-  const { 
-    register, 
-    handleSubmit, 
-    reset,
-    formState: { errors } 
-  } = useForm<CommentFormValues>();
-  
+  const { register, handleSubmit, reset } = useForm<CommentFormValues>();
+
   useEffect(() => {
     if (id) {
       fetchRequestById(parseInt(id));
     }
   }, [id, fetchRequestById]);
-  
-  const onSubmitComment = async (data: CommentFormValues) => {
-    if (!id) return;
-    
-    setSubmitting(true);
-    try {
-      await addComment(parseInt(id), data.content);
-      reset();
-    } catch (error) {
-      console.error('Failed to add comment:', error);
-    } finally {
-      setSubmitting(false);
+
+  const onSubmit = async (data: CommentFormValues) => {
+    if (id) {
+      try {
+        await addComment(parseInt(id), data.content);
+        reset();
+      } catch (error) {
+        console.error('Failed to add comment:', error);
+      }
     }
   };
-  
+
   if (loading || !currentRequest) {
-    return (
-      <div className="h-64 flex items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    );
+    return <Spinner />;
   }
 
   return (
-    <div>
-      <PageHeader
-        title={`Request #${currentRequest.id}`}
-        subtitle={currentRequest.title}
-        actions={
-          <Button
-            variant="ghost"
-            icon={<ArrowLeft size={18} />}
-            onClick={() => navigate('/requests')}
-          >
-            Back to Requests
-          </Button>
-        }
-      />
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Request details */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-gray-900">Request Details</h2>
-                <div className="flex items-center space-x-2">
-                  <StatusBadge status={currentRequest.status} />
-                  <PriorityBadge priority={currentRequest.priority} />
-                </div>
-              </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex flex-col space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{currentRequest.title}</h1>
+              <p className="mt-1 text-sm text-gray-500">Request #{currentRequest.id}</p>
             </div>
-            
-            <div className="p-6">
-              <h3 className="text-xl font-medium text-gray-900 mb-4">{currentRequest.title}</h3>
-              <div className="prose max-w-none">
-                <p className="text-gray-700 whitespace-pre-line">{currentRequest.description}</p>
-              </div>
-              
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center">
-                  <div className="p-2 rounded-full bg-blue-100 text-blue-600 mr-2">
-                    <User size={16} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Submitted by</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {currentRequest.user?.firstName} {currentRequest.user?.lastName}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center">
-                  <div className="p-2 rounded-full bg-blue-100 text-blue-600 mr-2">
-                    <Calendar size={16} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Date submitted</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {format(new Date(currentRequest.createdAt), 'MMM d, yyyy h:mm a')}
-                    </p>
-                  </div>
-                </div>
-              </div>
+            <StatusBadge status={currentRequest.status} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 py-4">
+            <div className="flex items-center space-x-2 text-sm">
+              <User className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-600">Created by:</span>
+              <span className="font-medium text-gray-900">
+                {currentRequest.user?.firstName} {currentRequest.user?.lastName}
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2 text-sm">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-600">Created:</span>
+              <span className="font-medium text-gray-900">
+                {format(new Date(currentRequest.createdAt), 'MMM d, yyyy')}
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2 text-sm">
+              <MessageSquare className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-600">Department:</span>
+              <span className="font-medium text-gray-900">
+                {DEPARTMENT_LABELS[currentRequest.department as Department]}
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2 text-sm">
+              <span className="text-gray-600">Priority:</span>
+              <PriorityBadge priority={currentRequest.priority} />
             </div>
           </div>
-          
-          {/* Comments section */}
-          <div className="mt-6 bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center">
-                <MessageSquare size={18} className="text-gray-400 mr-2" />
-                <h2 className="text-lg font-semibold text-gray-900">Comments</h2>
-              </div>
-            </div>
-            
-            <div className="divide-y divide-gray-200">
-              {currentRequest.comments && currentRequest.comments.length > 0 ? (
-                currentRequest.comments.map((comment) => (
-                  <div key={comment.id} className="p-6">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center">
-                        <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white mr-2">
-                          {comment.user?.firstName?.charAt(0) || 'U'}{comment.user?.lastName?.charAt(0) || ''}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {comment.user?.firstName} {comment.user?.lastName}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {format(new Date(comment.createdAt), 'MMM d, yyyy h:mm a')}
-                          </p>
-                        </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-lg font-medium text-gray-900">Description</h3>
+            <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">
+              {currentRequest.description}
+            </p>
+          </div>
+
+          {/* Comments Section */}
+          <div className="border-t border-gray-200 pt-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Comments</h3>
+            <div className="space-y-4">
+              {currentRequest.comments?.map((comment, index) => (
+                <div key={index} className="flex space-x-3">
+                  <div className="flex-1 bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium text-gray-900">
+                          {comment.user?.firstName} {comment.user?.lastName}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          {format(new Date(comment.createdAt), 'MMM d, yyyy h:mm a')}
+                        </span>
                       </div>
-                      
-                      <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        {comment.user?.role}
-                      </div>
+                      {comment.sentiment && (
+                        <SentimentBadge 
+                          score={comment.sentiment.score} 
+                          confidence={comment.sentiment.confidence}
+                        />
+                      )}
                     </div>
-                    
-                    <div className="pl-10">
-                      <p className="text-gray-700 whitespace-pre-line">{comment.content}</p>
-                    </div>
+                    <p className="text-sm text-gray-600">{comment.content}</p>
                   </div>
-                ))
-              ) : (
-                <div className="p-6 text-center text-gray-500">
-                  No comments yet
                 </div>
-              )}
+              ))}
             </div>
-            
-            {/* Add comment form */}
-            <div className="p-6 bg-gray-50">
-              <form onSubmit={handleSubmit(onSubmitComment)}>
-                <div>
-                  <label htmlFor="content" className="sr-only">Comment</label>
+
+            {/* Add Comment Form */}
+            <form onSubmit={handleSubmit(onSubmit)} className="mt-4">
+              <div className="flex items-start space-x-4">
+                <div className="min-w-0 flex-1">
                   <textarea
-                    id="content"
+                    {...register('content', { required: true })}
                     rows={3}
-                    className={`
-                      w-full rounded-md shadow-sm
-                      ${errors.content ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 
-                        'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}
-                    `}
-                    placeholder="Add a comment..."
-                    {...register('content', { 
-                      required: 'Comment cannot be empty',
-                      minLength: {
-                        value: 5,
-                        message: 'Comment must be at least 5 characters'
-                      }
-                    })}
-                  ></textarea>
-                  {errors.content && <p className="mt-1 text-sm text-red-600">{errors.content.message}</p>}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    placeholder="Add your comment..."
+                  />
                 </div>
-                
-                <div className="mt-2 flex justify-end">
-                  <Button
-                    type="submit"
-                    isLoading={submitting}
-                    icon={<Send size={16} />}
-                  >
-                    Post Comment
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-        
-        {/* Request info sidebar */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Request Information</h2>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Status</h3>
-                <StatusBadge status={currentRequest.status} />
+                <Button type="submit" icon={<Send size={16} />}>
+                  Send
+                </Button>
               </div>
-              
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Priority</h3>
-                <PriorityBadge priority={currentRequest.priority} />
-              </div>
-              
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Department</h3>
-                <p className="text-sm text-gray-900">
-                  {DEPARTMENT_LABELS[currentRequest.department as Department]}
-                </p>
-              </div>
-              
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Assigned To</h3>
-                {currentRequest.assignee ? (
-                  <div className="flex items-center">
-                    <div className="h-6 w-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs mr-2">
-                      {currentRequest.assignee.firstName?.charAt(0) || 'T'}{currentRequest.assignee.lastName?.charAt(0) || ''}
-                    </div>
-                    <p className="text-sm text-gray-900">
-                      {currentRequest.assignee.firstName} {currentRequest.assignee.lastName}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500 italic">Not assigned yet</p>
-                )}
-              </div>
-              
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-1">Timeline</h3>
-                <div className="space-y-3">
-                  <div className="flex items-start">
-                    <div className="p-1 rounded-full bg-blue-100 text-blue-600 mr-2">
-                      <Clock size={14} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-gray-900">Created</p>
-                      <p className="text-xs text-gray-500">
-                        {format(new Date(currentRequest.createdAt), 'MMM d, yyyy h:mm a')}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {currentRequest.status === RequestStatus.RESOLVED && (
-                    <div className="flex items-start">
-                      <div className="p-1 rounded-full bg-green-100 text-green-600 mr-2">
-                        <CheckCircle2 size={14} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-gray-900">Resolved</p>
-                        <p className="text-xs text-gray-500">
-                          {format(new Date(currentRequest.updatedAt), 'MMM d, yyyy h:mm a')}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            </form>
           </div>
         </div>
       </div>

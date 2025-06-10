@@ -15,9 +15,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email: string, password: string) => {
     set({ loading: true, error: null });
     try {
+      console.log('Attempting login for:', email);
       const response = await axios.post(`${API_URL}/auth/login`, { email, password });
       const { token, user } = response.data;
       
+      console.log('Login successful, token received:', token ? 'Yes' : 'No');
       localStorage.setItem('token', token);
       
       set({
@@ -27,6 +29,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         loading: false
       });
     } catch (error) {
+      console.error('Login error:', error);
       set({
         loading: false,
         error: error instanceof Error ? error.message : 'Login failed'
@@ -69,6 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   checkAuth: async () => {
     const token = localStorage.getItem('token');
+    console.log('Checking auth, token exists:', !!token);
     
     if (!token) {
       set({ initialized: true });
@@ -80,7 +84,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const decodedToken: any = jwtDecode(token);
       const isExpired = decodedToken.exp * 1000 < Date.now();
       
+      console.log('Token expiration check:', { 
+        expiration: new Date(decodedToken.exp * 1000),
+        isExpired,
+        currentTime: new Date()
+      });
+      
       if (isExpired) {
+        console.log('Token expired, removing from storage');
         localStorage.removeItem('token');
         set({ 
           token: null,
@@ -96,6 +107,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { Authorization: `Bearer ${token}` }
       });
       
+      console.log('Auth check successful, user data received');
+      
       set({
         token,
         user: response.data,
@@ -103,6 +116,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         initialized: true
       });
     } catch (error) {
+      console.error('Auth check error:', error);
       localStorage.removeItem('token');
       set({
         token: null,

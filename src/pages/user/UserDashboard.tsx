@@ -12,13 +12,11 @@ import { formatDistanceToNow } from 'date-fns';
 
 const UserDashboard = () => {
   const { user } = useAuthStore();
-  const { stats, loading, fetchUserDashboardStats } = useDashboardStore();
+  const { stats, loading, fetchDashboardStats } = useDashboardStore();
   
   useEffect(() => {
-    if (user) {
-      fetchUserDashboardStats(user.id);
-    }
-  }, [user, fetchUserDashboardStats]);
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
 
   if (loading || !stats) {
     return (
@@ -34,15 +32,15 @@ const UserDashboard = () => {
         title={`Welcome, ${user?.firstName}!`}
         subtitle="Track your support requests and their progress"
         actions={
-          <Button
-            variant="primary"
-            icon={<PlusCircle size={18} />}
-            iconPosition="left"
-            as={Link}
-            to="/requests/new"
-          >
-            New Request
-          </Button>
+          <Link to="/requests/new">
+            <Button
+              variant="primary"
+              icon={<PlusCircle size={18} />}
+              iconPosition="left"
+            >
+              New Request
+            </Button>
+          </Link>
         }
       />
       
@@ -112,15 +110,15 @@ const UserDashboard = () => {
           ) : (
             <div className="px-6 py-8 text-center">
               <p className="text-gray-500">No requests yet</p>
-              <Button
-                variant="primary"
-                icon={<PlusCircle size={18} />}
-                className="mt-4"
-                as={Link}
-                to="/requests/new"
-              >
-                Create your first request
-              </Button>
+              <Link to="/requests/new">
+                <Button
+                  variant="primary"
+                  icon={<PlusCircle size={18} />}
+                  className="mt-4"
+                >
+                  Create your first request
+                </Button>
+              </Link>
             </div>
           )}
         </div>

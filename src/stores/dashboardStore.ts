@@ -1,46 +1,27 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import { DashboardStats } from '../types';
 import { API_URL } from '../config';
+import { useAuthStore } from './authStore';
 
-interface DashboardState {
+interface DashboardStats {
+  totalRequests: number;
+  openRequests: number;
+  resolvedRequests: number;
+  avgResponseTime: number;
+  requestsByStatus: Record<string, number>;
+  requestsByDepartment: Record<string, number>;
+  requestsByPriority: Record<number, number>;
+  recentRequests: any[];
+}
+
+interface DashboardStore {
   stats: DashboardStats | null;
   loading: boolean;
   error: string | null;
-  
   fetchDashboardStats: () => Promise<void>;
-  fetchUserDashboardStats: (userId: number) => Promise<void>;
 }
 
-const initialStats: DashboardStats = {
-  totalRequests: 0,
-  openRequests: 0,
-  resolvedRequests: 0,
-  avgResponseTime: 0,
-  requestsByStatus: {
-    new: 0,
-    in_progress: 0,
-    resolved: 0,
-    rejected: 0
-  },
-  requestsByDepartment: {
-    it: 0,
-    hr: 0,
-    finance: 0,
-    operations: 0,
-    customer_service: 0
-  },
-  requestsByPriority: {
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 0,
-    5: 0
-  },
-  recentRequests: []
-};
-
-export const useDashboardStore = create<DashboardState>((set) => ({
+export const useDashboardStore = create<DashboardStore>((set) => ({
   stats: null,
   loading: false,
   error: null,
@@ -49,30 +30,28 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     set({ loading: true, error: null });
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/dashboard/stats`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      set({ stats: response.data, loading: false });
-    } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch dashboard stats'
-      });
-    }
-  },
+      const user = useAuthStore.getState().user;
+      
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
 
-  fetchUserDashboardStats: async (userId: number) => {
-    set({ loading: true, error: null });
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/dashboard/users/${userId}/stats`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const endpoint = user?.role === 'admin' 
+        ? `${API_URL}/dashboard/stats`
+        : `${API_URL}/dashboard/users/${user?.id}/stats`;
+
+      const response = await axios.get(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       });
+      
       set({ stats: response.data, loading: false });
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch user dashboard stats'
+      console.error('Dashboard stats error:', error);
+      set({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch dashboard statistics', 
+        loading: false 
       });
     }
   }

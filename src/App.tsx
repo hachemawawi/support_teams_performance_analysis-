@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { UserRole } from './types';
 
 // Layouts
 import AuthLayout from './layouts/AuthLayout';
@@ -52,9 +53,8 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
       </Route>
-
       {/* User Routes */}
-      <Route element={<ProtectedRoute allowedRoles={['user']} />}>
+      <Route element={<ProtectedRoute allowedRoles={[UserRole.USER]} />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<UserDashboard />} />
           <Route path="/requests/new" element={<NewRequest />} />
@@ -65,7 +65,7 @@ function App() {
       </Route>
 
       {/* Admin Routes */}
-      <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+      <Route element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]} />}>
         <Route element={<DashboardLayout />}>
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<UserManagement />} />
@@ -75,7 +75,7 @@ function App() {
       </Route>
 
       {/* Tech Team Routes */}
-      <Route element={<ProtectedRoute allowedRoles={['tech']} />}>
+      <Route element={<ProtectedRoute allowedRoles={[UserRole.TECH]} />}>
         <Route element={<DashboardLayout />}>
           <Route path="/tech" element={<TechDashboard />} />
           <Route path="/tech/requests" element={<AssignedRequests />} />
